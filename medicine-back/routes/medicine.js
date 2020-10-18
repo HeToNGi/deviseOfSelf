@@ -8,6 +8,629 @@ var format = require('date-format');
 // 使用连接池
 const pool = mysql.createPool(conf.mysql);
 
+
+function execSql(sql) {
+  return new Promise((resolve, reject) => {
+    pool.query(sql, (error, results) => {
+      if (error) {
+        // console.log("=================================================")
+        // console.log("执行sql失败", sql)
+        // console.log("错误", error)
+        // console.log("=================================================")
+        reject(error)
+      } else {
+        // console.log("*************************************************")
+        // console.log("执行sql成功", sql)
+        // console.log("结果集", results)
+        // console.log("*************************************************")
+        resolve(results)
+      }
+    })
+  })
+}
+
+/*=================================================================*/
+/*客户端*/
+/*支付*/
+router.post("/client/order/pay", async (request, response, next) => {
+  let orders = await execSql(`select medicine_goods.medicine_shop_id
+                              from medicine_car,
+                                   medicine_goods
+                              where medicine_goods_no = medicine_goods.medicine_no
+                                and medicine_car.user_name = '${request.session.username}'
+                              group by medicine_goods.medicine_shop_id`);
+  for (let i in orders) {
+    let order = orders[i];
+
+    // 订单号
+    let orderNo = uuid();
+    // 查询同一家店的 创建一个订单
+    let result = await execSql(`select id, user_name, medicine_goods_no, medicine_price, medicine_num
+                                        from medicine_car 
+                                        where user_name = '${request.session.username}' 
+                                              and medicine_goods_no in 
+                                                  (select medicine_no from medicine_goods where id = ${order.medicine_shop_id})`);
+    for (let i in result) {
+      let item = result[i];
+      // 检查库存
+      let goods = await execSql(`select medicine_num,medicine_name,medicine_price from medicine_goods where medicine_no = '${item.medicine_goods_no}'`);
+      if (goods[0].medicine_num <= 0) {
+        throw new Error(medicine_name + " 库存为0，请重新选择")
+      }
+      // 更新库存
+      await execSql(`update medicine_goods  set medicine_num = medicine_num - ${item.medicine_num} where medicine_no = '${item.medicine_goods_no}'`);
+      // 订单项
+      await execSql(`insert into medicine_order_item (user_id, order_no, medicine_goods_no, medicine_price) 
+                        values 
+                        ((select id from medicine_users where username = '${request.session.username}'),
+                         '${orderNo}','${ite.medicine_goods_no}',${goods[0].medicine_price})`);
+      // 删除购物车
+      await execSql(`delete from medicine_car where id = ${item.id}`)
+    }
+    // 取货码
+    let pickupCode = 0;
+    for (let i in 8) {
+      pickupCode += Math.floor(Math.random() * 10);
+    }
+    // 如果支付方式为网上支付 邮寄 不需要选择生成取货码，医保支付需要到店支付 需要取货码
+    if (request.body.payType === '2') {
+      pickupCode = '';
+    }
+    // 订单 默认为已支付
+    await execSql(`insert into medicine_order (user_id, order_no, pay_type, has_pay, 
+                            pickup_code, order_price, create_date, has_pickup, medicine_shop_id, order_address)
+                      values 
+                      ((select id from medicine_users where username = '${request.session.username}'),
+                         '${orderNo}','${request.body.payType}', '1', '${pickupCode}',
+                       (select sum(medicine_price) from medicine_car where user_name = '${request.session.username}'),
+                       '${format.asString('yyyy-MM-dd HH:mm:ss', new Date())}', '0', ${order.medicine_shop_id},'${request.body.payAddress}')`)
+    // 一单100积分
+    await execSql(`update medicine_users set members_point = members_point + 100 where username = '${request.session.username}'`)
+  }
+
+
+})
+
+/*创建订单*/
+router.post("/client/order/create", async (request, response, next) => {
+  let list = [];
+
+  let orders = await execSql(`select medicine_goods.medicine_shop_id
+                              from medicine_car,
+                                   medicine_goods
+                              where medicine_goods_no = medicine_goods.medicine_no
+                                and medicine_car.user_name = '${request.session.username}'
+                              group by medicine_goods.medicine_shop_id`);
+  for (let i in orders) {
+    let tmp = orders[i];
+    let shopInfo = await execSql(`select * from medicine_shop where id = '${tmp.medicine_shop_id}'`);
+    let sql = `select medicine_car.medicine_num   as carnum,
+                    medicine_car.medicine_price as carprice,
+                    medicine_car.user_name      as carusername,
+                    medicine_goods.medicine_name,
+                    medicine_goods.medicine_price,
+                    medicine_goods.medicine_no,
+                    medicine_shop.shop_name,
+                    medicine_shop.shop_addr,
+                    medicine_shop.id as shopid,
+                    medicine_goods.medicine_pic_url
+             from medicine_car,
+                  medicine_goods,
+                  medicine_shop
+             where medicine_car.medicine_goods_no = medicine_goods.medicine_no
+               and medicine_goods.medicine_shop_id = medicine_shop.id and medicine_goods.medicine_shop_id = ${tmp.medicine_shop_id}
+               and medicine_car.user_name = '${request.session.username}'`;
+    let orderItem = await execSql(sql);
+    let total = 0, price = 0, banners = [];
+    for (let i in orderItem) {
+      let item = orderItem[i];
+      total += item.carnum;
+      price += item.carprice;
+      banners.push('http://127.0.0.1:3000' + item.medicine_pic_url);
+    }
+
+    let obj = {
+      address: shopInfo[0].shop_addr,
+      shopName: shopInfo[0].shop_name,
+      totalNum: total,
+      totalAmount: price,
+      banners: banners
+    }
+    list.push(obj);
+  }
+  let pay = await execSql(`select sum(medicine_price) as price from medicine_car where user_name = '${request.session.username}'`);
+
+  console.log("订单", list)
+  await response.json({code: 200, message: "订单生成成功", data: list, payAmount: pay[0].price});
+
+
+})
+
+
+/*购物车删除*/
+router.post("/client/cart/deleteCart", (request, response, next) => {
+  let sql = `delete from medicine_car where user_name = '${request.session.username}' and medicine_goods_no = '${request.body.sku}'`;
+  pool.query(sql, (err, res) => {
+    if (err) {
+      next(err)
+    } else {
+      response.json({code: 200, message: "删除成功"});
+    }
+  });
+})
+
+/*购物车新增减少*/
+router.post("/client/cart/cartNum", (request, response, next) => {
+  let sql = `select id, user_name, medicine_goods_no, medicine_price, medicine_num
+                from medicine_car where user_name = '${request.session.username}' and medicine_goods_no = '${request.body.sku}'`;
+  pool.query(sql, (err, res) => {
+    if (err) {
+      next(err)
+    } else {
+      if (res.length > 0) {
+        let num = res[0].medicine_num + request.body.quantity;
+        if (num > 0) {
+          let sqlUpdate = `update medicine_car set medicine_num = ${num},
+                                medicine_price = (select medicine_price * ${num} from medicine_goods where medicine_no = '${request.body.sku}') 
+                                where id = ${res[0].id}`;
+          pool.query(sqlUpdate, (err, res) => {
+            if (err) {
+              next(err)
+            } else {
+              response.json({code: 200, message: "成功"});
+            }
+          });
+        } else {
+          let sqlDelete = `delete from medicine_car where id = ${res[0].id}`;
+          pool.query(sqlDelete, (err, resDelete) => {
+            if (err) {
+              next(err)
+            } else {
+
+            }
+          });
+        }
+      }
+    }
+  });
+})
+
+/*查询购物车*/
+router.post("/client/cart/list", (request, response, next) => {
+
+  let sqlc = `select medicine_name,
+               medicine_pic_url,
+               medicine_no,
+               medicine_car.medicine_num,
+               medicine_car.medicine_price,
+               medicine_name,
+               medicine_goods.medicine_price as oneprice
+        from medicine_car,
+             medicine_goods
+        where medicine_goods.medicine_no = medicine_car.medicine_goods_no and user_name = '${request.session.username}'`;
+  pool.query(sqlc, (errc, resc) => {
+    if (errc) {
+      next(errc)
+    } else {
+      if (resc.length > 0) {
+
+        let total = 0;
+        let totalNum = 0;
+        let list = [];
+        for (let i = 0; i < resc.length; i++) {
+          total += resc[i].medicine_price;
+          totalNum += resc[i].medicine_num;
+          let obj = {
+            "sku": resc[i].medicine_no,
+            "productName": resc[i].medicine_name,
+            "quantity": resc[i].medicine_num,
+            "price": resc[i].medicine_price,
+            "image": resc[i].medicine_pic_url,
+            "checked": true,
+            "title": resc[i].medicine_name,
+          }
+          list.push(obj);
+        }
+
+        let obj = {
+          "total": total,
+          "cartEntries": list,
+          "selectAll": true,
+          "totalNum": totalNum
+        };
+        response.json({code: 200, message: "查询成功", data: obj});
+      } else {
+        response.json({
+          code: 200, message: "查询成功", data: {
+            "total": 0,
+            "cartEntries": [],
+            "selectAll": true,
+            "totalNum": 0
+          }
+        });
+      }
+    }
+  });
+
+})
+
+/*加入购物车*/
+router.post("/client/cart/addCart", (request, response, next) => {
+  let sqlb = `select * from medicine_car 
+             where user_name = '${request.session.username}' and medicine_goods_no ='${request.body.sku}'`;
+  pool.query(sqlb, (errb, resb) => {
+    if (errb) {
+      next(errb)
+    } else {
+      // 购物车已存在，更新
+      if (resb.length > 0) {
+        let sql = `update medicine_car 
+                    set medicine_num = medicine_num + ${request.body.quantity},
+                        medicine_price = 
+                            (select medicine_price 
+                            from medicine_goods 
+                            where medicine_no = '${request.body.sku}') * (medicine_num)
+                    where id = ${resb[0].id}`;
+        pool.query(sql, (err, res) => {
+          if (err) {
+            next(err)
+          } else {
+            let sqla = `select id,
+                   user_id,
+                   medicine_shop_id,
+                    (select medicine_type_name
+                     from medicine_goods_type
+                     where id = medicine_goods_type_id)                                                    as medicine_type_name,
+                   medicine_goods_type_id,
+                   medicine_no,
+                   medicine_name,
+                   medicine_desc,
+                   medicine_price,
+                   medicine_num,
+                   concat('http://127.0.0.1:3000', medicine_pic_url)                                      as medicine_pic_url ,
+                   create_date,
+                   is_delete
+            from medicine_goods
+            where medicine_no = '${request.body.sku}'`;
+            pool.query(sqla, (erra, resa) => {
+              if (erra) {
+                next(erra)
+              } else {
+
+                let sqlc = `select id, user_name, medicine_goods_no, medicine_price, medicine_num 
+                            from medicine_car where user_name = '${request.session.username}'`;
+                pool.query(sqlc, (errc, resc) => {
+                  if (errc) {
+                    next(errc)
+                  } else {
+                    if (resc.length > 0) {
+
+                      let total = 0;
+                      let totalNum = 0;
+                      for (let i = 0; i < resc.length; i++) {
+                        total += resc[i].medicine_price;
+                        totalNum += resc[i].medicine_num;
+                      }
+
+                      let obj = {
+                        "total": total,
+                        "cartEntries": [
+                          {
+                            "sku": resa[0].medicine_no,
+                            "productName": resa[0].medicine_name,
+                            "quantity": resa[0].medicine_num,
+                            "price": resa[0].medicine_name,
+                            "image": resa[0].medicine_pic_url,
+                            "checked": true,
+                            "title": resa[0].medicine_name,
+                          }
+                        ],
+                        "selectAll": true,
+                        "totalNum": totalNum
+                      };
+                      response.json({code: 200, message: "添加成功", data: obj});
+                    } else {
+                      response.json({code: 200, message: "添加成功，计算总量错误"});
+                    }
+                  }
+                });
+
+              }
+            });
+            // response.json({code: 200, message: "添加成功"});
+          }
+        });
+      } else { // 新增
+        let sql = `insert into medicine_car (user_name, medicine_goods_no, medicine_price, medicine_num) values 
+            ('${request.session.username}','${request.body.sku}',
+             (select medicine_price from medicine_goods where medicine_no = '${request.body.sku}') * ${request.body.quantity} ,
+             ${request.body.quantity})`;
+        pool.query(sql, (err, res) => {
+          if (err) {
+            next(err)
+          } else {
+            let sqla = `select id,
+                   user_id,
+                   medicine_shop_id,
+                    (select medicine_type_name
+                     from medicine_goods_type
+                     where id = medicine_goods_type_id)                                                    as medicine_type_name,
+                   medicine_goods_type_id,
+                   medicine_no,
+                   medicine_name,
+                   medicine_desc,
+                   medicine_price,
+                   medicine_num,
+                   concat('http://127.0.0.1:3000', medicine_pic_url)                                      as medicine_pic_url ,
+                   create_date,
+                   is_delete
+            from medicine_goods
+            where medicine_no = '${request.body.sku}'`;
+            pool.query(sqla, (erra, resa) => {
+              if (erra) {
+                next(erra)
+              } else {
+
+                let sqlc = `select id, user_name, medicine_goods_no, medicine_price, medicine_num 
+                            from medicine_car where user_name = '${request.session.username}'`;
+                pool.query(sqlc, (errc, resc) => {
+                  if (errc) {
+                    next(errc)
+                  } else {
+                    if (resc.length > 0) {
+
+                      let total = 0;
+                      let totalNum = 0;
+                      for (let i = 0; i < resc.length; i++) {
+                        total += resc[i].medicine_price;
+                        totalNum += resc[i].medicine_num;
+                      }
+
+                      let obj = {
+                        "total": total,
+                        "cartEntries": [
+                          {
+                            "sku": resa[0].medicine_no,
+                            "productName": resa[0].medicine_name,
+                            "quantity": resa[0].medicine_num,
+                            "price": resa[0].medicine_name,
+                            "image": resa[0].medicine_pic_url,
+                            "checked": true,
+                            "title": resa[0].medicine_name,
+                          }
+                        ],
+                        "selectAll": true,
+                        "totalNum": totalNum
+                      };
+                      response.json({code: 200, message: "添加成功", data: obj});
+                    } else {
+                      response.json({code: 200, message: "添加成功，计算总量错误"});
+                    }
+                  }
+                });
+
+              }
+            });
+          }
+        });
+      }
+    }
+  });
+
+
+})
+
+/*sku*/
+router.post("/client/goods/detail/category", (request, response, next) => {
+  let sql = `select id,
+                   user_id,
+                   medicine_shop_id,
+       (select medicine_type_name
+                     from medicine_goods_type
+                     where id = medicine_goods_type_id)                                                    as medicine_type_name,
+                   medicine_goods_type_id,
+                   medicine_no,
+                   medicine_name,
+                   medicine_desc,
+                   medicine_price,
+                   medicine_num,
+                   concat('http://127.0.0.1:3000', medicine_pic_url)                                      as medicine_pic_url ,
+                   create_date,
+                   is_delete
+            from medicine_goods
+            where medicine_no = '${request.body.productId}'`;
+  pool.query(sql, (err, res) => {
+    if (err) {
+      next(err)
+    } else {
+      if (res.length > 0) {
+        response.json({
+          code: 200, message: "查询成功", data: {
+            tree: [
+              {
+                k: res[0].medicine_name,
+                k_s: "s1",
+                v: [
+                  {
+                    id: 5,
+                    name: res[0].medicine_name,
+                    attrId: 1,
+                    imgUrl: res[0].medicine_pic_url,
+                    sort: 999,
+                  },
+                ],
+              },
+
+            ],
+            list: [
+              {
+                id: res[0].medicine_no,
+                s1: 5,
+                s2: 4,
+                price: res[0].medicine_price * 100,
+                stock_num: res[0].medicine_num,
+              },
+            ],
+            price: res[0].medicine_price,
+            stock_num: res[0].medicine_num,
+            none_sku: false,
+            hide_stock: false,
+          }
+        });
+      } else {
+        response.json({code: 500, message: "查询失败，药品不存在"});
+      }
+    }
+  });
+
+})
+
+/*商品详情*/
+router.post("/client/goods/detail", (request, response, next) => {
+  let sql = `select id,
+                   user_id,
+                   medicine_shop_id,
+       (select medicine_type_name
+                     from medicine_goods_type
+                     where id = medicine_goods_type_id)                                                    as medicine_type_name,
+                   medicine_goods_type_id,
+                   medicine_no,
+                   medicine_name,
+                   medicine_desc,
+                   medicine_price,
+                   medicine_num,
+                   concat('http://127.0.0.1:3000', medicine_pic_url)                                      as medicine_pic_url ,
+                   create_date,
+                   is_delete
+            from medicine_goods
+            where medicine_no = '${request.body.productId}'`;
+  pool.query(sql, (err, res) => {
+    if (err) {
+      next(err)
+    } else {
+      if (res.length > 0) {
+        let result = {
+          "name": res[0].medicine_name,
+          "productId": res[0].medicine_no,
+          "title": res[0].medicine_desc,
+          "virtualNum": res[0].medicine_num,
+          "price": res[0].medicine_price,
+          "stock": 0,
+          "sort": 999,
+          "productImg": {
+            "id": res[0].id,
+            "productId": res[0].medicine_no,
+            "rollImg": res[0].medicine_pic_url,
+            "detailImg": res[0].medicine_pic_url
+          },
+          "brand": res[0].medicine_type_name,
+          "productRightsList": [{
+            "id": 1,
+            "type": 2,
+            "describe": "全站自营"
+          }, {"id": 2, "type": 2, "describe": "正品货源"}, {
+            "id": 3,
+            "type": 2,
+            "describe": "权威鉴定"
+          }, {
+            "id": 5,
+            "type": 1,
+            "describe": "假一赔十，100%保证"
+          }]
+        }
+        response.json({code: 200, message: "查询成功", data: result});
+      } else {
+        response.json({code: 500, message: "查询失败，药品不存在"});
+      }
+    }
+  });
+})
+
+/*商品列表*/
+router.post("/client/goods/list", (request, response, next) => {
+  let s = `select count(1) as total
+              from medicine_goods
+              where is_delete = '0'
+                    and (medicine_name like '%${request.body.searchText}%' or medicine_desc like '%${request.body.searchText}%')
+              order by create_date desc`;
+  if (request.body.searchText === '') {
+    s = `select count(1) as total
+              from medicine_goods
+              where is_delete = '0'
+                    and (medicine_name like '%${request.body.searchText}%' or medicine_desc like '%${request.body.searchText}%')
+              order by create_date desc`;
+  }
+  console.log('count sql', s)
+  pool.query(s, (err, res) => {
+    if (err) {
+      next(err)
+    } else {
+      let total = res[0].total;
+      if (total > 0) {
+        let pageSize = request.body.pageSize;
+        let pageNo = request.body.pageNum;
+        let startPage = (pageNo - 1) * pageSize;
+        let sql = '';
+        if (request.body.searchText === '') {
+          sql = `select id,
+                    concat('http://127.0.0.1:3000', medicine_pic_url)                                      as img,
+                    medicine_name                                                                          as name,
+                    medicine_price                                                                         as price,
+                    medicine_no                                                                            as productId,
+                    medicine_name                                                                          as title,
+                    (select medicine_type_name
+                     from medicine_goods_type
+                     where id = medicine_goods_type_id)                                                    as medicine_type_name,
+                    medicine_desc                                                                          as productDesc,
+                    medicine_num                                                                           as num
+             from medicine_goods
+             where is_delete = '0' 
+             order by create_date desc
+             limit ${startPage}, ${pageSize}`;
+        } else {
+          sql = `select id,
+                    concat('http://127.0.0.1:3000', medicine_pic_url)                                      as img,
+                    medicine_name                                                                          as name,
+                    medicine_price                                                                         as price,
+                    medicine_no                                                                            as productId,
+                    medicine_name                                                                          as title,
+                    (select medicine_type_name
+                     from medicine_goods_type
+                     where id = medicine_goods_type_id)                                                    as medicine_type_name,
+                    medicine_desc                                                                          as productDesc,
+                    medicine_num                                                                           as num
+             from medicine_goods
+             where is_delete = '0' and (medicine_name like '%${request.body.searchText}%' or medicine_desc like '%${request.body.searchText}%')
+             order by create_date desc
+             limit ${startPage}, ${pageSize}`;
+        }
+        console.log('sql', sql)
+        pool.query(sql, (error, results) => {
+          if (error) {
+            next(error)
+          } else {
+            response.json({
+              code: 200,
+              message: "查询成功",
+              data: results,
+              page: {total: total}
+            });
+          }
+
+        })
+      } else {
+        response.json({code: 200, message: "查询成功", data: [], page: {total: 0}});
+      }
+    }
+
+
+  })
+
+})
+
+/*=================================================================*/
+
+
 /*=================================================================*/
 /*订单*/
 router.post("/goods/order/list", (request, response, next) => {
@@ -77,8 +700,9 @@ router.post("/goods/list", (request, response, next) => {
               where medicine_goods_type.id = medicine_goods_type_id
                 and medicine_goods.is_delete = '0'
                 and medicine_users.id = medicine_goods.user_id
-                and medicine_shop.id = medicine_goods.medicine_shop_id
-              order by medicine_goods.id desc
+                and medicine_shop.id = medicine_goods.medicine_shop_id 
+                and medicine_users.username = '${request.session.username}'
+              order by medicine_goods.id desc 
               limit 0, 5`, (err, res) => {
     if (err) {
       next(err)
@@ -88,11 +712,6 @@ router.post("/goods/list", (request, response, next) => {
         let pageSize = request.body.page.pageSize;
         let pageNo = request.body.page.current;
         let startPage = (pageNo - 1) * pageSize;
-        // let sql = "select medicine_goods.id, medicine_goods.id as `key`, " +
-        //   "(select username from medicine_users where id= user_id) as username, " +
-        //   "medicine_goods_type.medicine_type_name," +
-        //   "medicine_no, medicine_name,medicine_desc,medicine_price,medicine_num " +
-        //   "from medicine_goods,medicine_goods_type where medicine_goods_type.id = medicine_goods_type_id and is_delete = '0' order by id desc limit ?, ?";
         let sql = `select medicine_goods.id,
        medicine_goods.id                                                       as \`key\`,
        (select username from medicine_users where id = medicine_goods.user_id) as username,
@@ -110,6 +729,7 @@ where medicine_goods_type.id = medicine_goods_type_id
   and medicine_goods.is_delete = '0'
   and medicine_users.id = medicine_goods.user_id
   and medicine_shop.id = medicine_goods.medicine_shop_id
+and medicine_users.username = '${request.session.username}'
 order by medicine_goods.id desc
 limit ${startPage}, ${pageSize}`;
         let params = [startPage, pageSize];
@@ -176,7 +796,7 @@ router.post("/goods/type/all", (request, response, next) => {
 /*查询药品分类列表*/
 router.post("/goods/type/list", (request, response, next) => {
   pool.query(`select count(1) as total
-              from medicine_goods_type`, (err, res) => {
+              from medicine_goods_type where user_id = (select id from medicine_users where medicine_users.username = '${request.session.username}')`, (err, res) => {
     if (err) {
       next(err)
     } else {
@@ -185,7 +805,11 @@ router.post("/goods/type/list", (request, response, next) => {
         let pageSize = request.body.page.pageSize;
         let pageNo = request.body.page.current;
         let startPage = (pageNo - 1) * pageSize;
-        let sql = "select id, id as `key`, (select username from medicine_users where id= user_id) as username, medicine_type_name from medicine_goods_type order by id limit ?, ?";
+        let sql = `select id, id as \`key\`, 
+                        (select username from medicine_users where id= user_id) as username, 
+                        medicine_type_name from medicine_goods_type 
+                        where user_id = (select id from medicine_users where medicine_users.username = '${request.session.username}')
+                        order by id limit ?, ?`;
         let params = [startPage, pageSize];
         pool.query(sql, params, (error, results) => {
           if (error) {

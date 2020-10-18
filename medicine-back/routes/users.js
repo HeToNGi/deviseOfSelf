@@ -8,6 +8,39 @@ router.get('/', function (req, res, next) {
   res.send('respond with a resource');
 });
 
+router.post("/verified", (request, response, next) => {
+  let sql = `select *
+             from medicine_users
+             where username = '${request.body.username}'
+               and user_password = '${request.body.user_password}'
+               and user_type = '${request.body.user_type}'
+               and exists(select 1 from medicine_users_verified where medicine_users_verified.user_id = medicine_users.id)`;
+  pool.query(sql, (err, res) => {
+    if (err) {
+      next(err)
+    } else {
+      if (res.length <= 0) {
+          let sql = `insert into medicine_users_verified (username, user_id, card_type, card_num) 
+                     values 
+                     ('${request.body.username}',
+                      (select id from medicine_users where medicine_users.username = '${request.body.username}'),
+                      '${request.body.card_type}','${request.body.card_num}')`;
+          pool.query(sql, (err1, res1) => {
+              if (err1) {
+                next(err1)
+              } else {
+                request.session.username = request.body.username;
+                response.json({code: 200, message: "认证成功", verified:true});
+              }
+          });
+      } else {
+        request.session.username = request.body.username;
+        response.json({code: 500, message: "请不要重复认证，您已认证", verified:true});
+      }
+    }
+  });
+})
+
 /*登录退出*/
 router.post('/logout', (request, response, next) => {
   request.session.username = null;
@@ -42,24 +75,24 @@ router.post('/login', (request, response, next) => {
           // 药店登录
           if (body.user_type === '1') {
             // 判断药店有没有申请过 如果没申请过  跳转到申请页面 , 申请过跳转到药品增删改查等页面
-            dbPool.query(`select * from medicine_shop where username = '${body.username}'`, (error, results) => {
+            dbPool.query(`select * from medicine_shop where username = '${body.username}'`, (error, resultss) => {
               // 查不到药店
-              if (results.length === 0) {
+              if (resultss.length === 0) {
                 response.json({code: 200, message: "申请药店", approve: false});
               } else { // 申请过药店
                 // 判断是否审核通过
-                if (results[0].approve_status === '0') { // 已提交
+                if (resultss[0].approve_status === '0') { // 已提交
                   response.json({
                     code: 500,
                     message: "药店已申请，请等待审核通过后登录",
                     approve: true,
                     approveStatus: '0'
                   });
-                } else if (results[0].approve_status === '1') { // 申请通过
+                } else if (resultss[0].approve_status === '1') { // 申请通过
                   response.json({code: 500, message: "申请已通过请等待资格审查通过"});
-                } else if (results[0].approve_status === '2') { // 申请拒绝
+                } else if (resultss[0].approve_status === '2') { // 申请拒绝
                   response.json({code: 500, message: "申请拒绝，请联系管理员"});
-                } else if (results[0].approve_status === '3') { // 资格审查通过
+                } else if (resultss[0].approve_status === '3') { // 资格审查通过
                   request.session.username = body.username;
                   request.session.user = results[0];
                   response.json({
@@ -79,17 +112,17 @@ router.post('/login', (request, response, next) => {
             // 判断是否实名认证
             let sql = `select * from medicine_users_verified where username = '${body.username}'`;
             pool.query(sql, (err, res) => {
-                if (err) {
-                  next(err)
+              if (err) {
+                next(err)
+              } else {
+                if (res.length > 0) {
+                  request.session.username = body.username;
+                  request.session.user = results[0];
+                  response.json({code: 200, message: "登录成功", verified: true});
                 } else {
-                  if(res.length > 0) {
-                    request.session.username = body.username;
-                    request.session.user = results[0];
-                    response.json({code: 200, message: "登录成功"});
-                  } else {
-                    response.json({code: 200, message: "您还没有进行实名认证，请先认证", verified:false});
-                  }
+                  response.json({code: 200, message: "您还没有进行实名认证，请先认证", verified: false});
                 }
+              }
             });
 
           }

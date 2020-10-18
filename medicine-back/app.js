@@ -50,7 +50,7 @@ app.all('*', (req, res, next) => {
     res.status(200)
     res.json({code: 200, message: "OPTIONS请求"});
   } else {
-    if (req.method !== 'OPTIONS' && !['/users/login','/users/register','/users/isLogin','/users/logout','/upload'].includes(req.url) && req.session && !req.session.username) {
+    if (req.method !== 'OPTIONS' && !['/users/login','/users/register','/users/isLogin','/users/logout','/upload','/users/verified'].includes(req.url) && req.session && !req.session.username) {
       res.status(403)
       res.json({code: 500, message: "登录超时或者未登录，请先登录"});
     } else {
@@ -102,6 +102,10 @@ app.use(function (err, req, res, next) {
   res.locals.error = req.app.get('env') === 'development' ? err : {};
 
   res.status(err.status || 500)
+
+  if (err.status === 404) {
+    err.message = req.path + ":" + err.message;
+  }
 
   res.json({
     code: err.status || 500,
