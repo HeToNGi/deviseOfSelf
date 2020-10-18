@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const dbPool = require('../util/commonUtil');
+const pool = dbPool;
 
 /* GET users listing. */
 router.get('/', function (req, res, next) {
@@ -29,54 +30,75 @@ router.post('/login', (request, response, next) => {
   dbPool.query(sql, function (error, results, fields) {
     if (error) {
       next(error)
-    }
-    if (results.length === 0) {
-      response.json({code: 500, message: "用户不存在"})
     } else {
-      if (results[0].user_password !== body.user_password) {
-        response.json({code: 500, message: "密码错误"});
-      } else if (results[0].user_type !== body.user_type) {
-        response.json({code: 500, message: "用户类型不正确"});
+      if (results.length === 0) {
+        response.json({code: 500, message: "用户不存在"})
       } else {
-        // 药店登录
-        if (body.user_type === '1') {
-          // 判断药店有没有申请过 如果没申请过  跳转到申请页面 , 申请过跳转到药品增删改查等页面
-          dbPool.query(`select * from medicine_shop where username = '${body.username}'`, (error, results) => {
-            // 查不到药店
-            if (results.length === 0) {
-              response.json({code: 200, message: "申请药店", approve: false});
-            } else { // 申请过药店
-              // 判断是否审核通过
-              if (results[0].approve_status === '0') { // 已提交
-                response.json({
-                  code: 500,
-                  message: "药店已申请，请等待审核通过后登录",
-                  approve: true,
-                  approveStatus: '0'
-                });
-              } else { // 审核通过
-                request.session.username = body.username;
-                response.json({
-                  code: 200,
-                  message: "登录成功",
-                  data: results[0],
-                  approve: true,
-                  approveStatus: '1'
-                });
+        if (results[0].user_password !== body.user_password) {
+          response.json({code: 500, message: "密码错误"});
+        } else if (results[0].user_type !== body.user_type) {
+          response.json({code: 500, message: "用户类型不正确"});
+        } else {
+          // 药店登录
+          if (body.user_type === '1') {
+            // 判断药店有没有申请过 如果没申请过  跳转到申请页面 , 申请过跳转到药品增删改查等页面
+            dbPool.query(`select * from medicine_shop where username = '${body.username}'`, (error, results) => {
+              // 查不到药店
+              if (results.length === 0) {
+                response.json({code: 200, message: "申请药店", approve: false});
+              } else { // 申请过药店
+                // 判断是否审核通过
+                if (results[0].approve_status === '0') { // 已提交
+                  response.json({
+                    code: 500,
+                    message: "药店已申请，请等待审核通过后登录",
+                    approve: true,
+                    approveStatus: '0'
+                  });
+                } else if (results[0].approve_status === '1') { // 申请通过
+                  response.json({code: 500, message: "申请已通过请等待资格审查通过"});
+                } else if (results[0].approve_status === '2') { // 申请拒绝
+                  response.json({code: 500, message: "申请拒绝，请联系管理员"});
+                } else if (results[0].approve_status === '3') { // 资格审查通过
+                  request.session.username = body.username;
+                  request.session.user = results[0];
+                  response.json({
+                    code: 200,
+                    message: "登录成功",
+                    data: results[0],
+                    approve: true,
+                    approveStatus: '1'
+                  });
+                }
               }
-            }
-          });
-        } else if (body.user_type === '0') { // 管理员登录
-          request.session.username = body.username;
-          response.json({code: 200, message: "登录成功", data: results[0]});
-        } else if (body.user_type === '2') { // 买家登录
-          request.session.username = body.username;
+            });
+          } else if (body.user_type === '0') { // 管理员登录
+            request.session.username = body.username;
+            response.json({code: 200, message: "登录成功", data: results[0]});
+          } else if (body.user_type === '2') { // 买家登录
+            // 判断是否实名认证
+            let sql = `select * from medicine_users_verified where username = '${body.username}'`;
+            pool.query(sql, (err, res) => {
+                if (err) {
+                  next(err)
+                } else {
+                  if(res.length > 0) {
+                    request.session.username = body.username;
+                    request.session.user = results[0];
+                    response.json({code: 200, message: "登录成功"});
+                  } else {
+                    response.json({code: 200, message: "您还没有进行实名认证，请先认证", verified:false});
+                  }
+                }
+            });
+
+          }
+
 
         }
-
-
       }
     }
+
   });
 })
 

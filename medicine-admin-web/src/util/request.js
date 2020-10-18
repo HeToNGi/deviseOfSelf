@@ -15,16 +15,23 @@ const errorHandler = (error) => {
     console.error("请求失败",error)
     if (error.response) {
         const data = error.response.data
-        if (error.response.status === 403) {
-            notification.error({
-                message: '登录提示',
-                description: data.message
-            })
-            router.push("/")
+        if (!data.message) {
+            if (error.response.status === 403) {
+                notification.error({
+                    message: '登录提示',
+                    description: data.message
+                })
+                router.push("/")
+            } else {
+                notification.error({
+                    message: '系统错误',
+                    description: data.message
+                })
+            }
         } else {
             notification.error({
                 message: '系统错误',
-                description: data.message
+                description: data
             })
         }
 

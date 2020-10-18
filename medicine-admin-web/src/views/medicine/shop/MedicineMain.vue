@@ -7,32 +7,42 @@
         <a-menu
             theme="dark"
             mode="horizontal"
-            :default-selected-keys="['2']"
+            :default-selected-keys="['1']"
             :style="{ lineHeight: '64px' }"
         >
-          <a-menu-item key="1">
-            nav 1
+          <a-menu-item key="1"
+                       @click="goRouter('MedicineShopAnalysis')"
+                       :disabled="$route.path === '/MedicineShopAnalysis'"
+                       :style="{color: $route.path === '/MedicineShopAnalysis'? 'white!important': ''}">
+            统计分析
           </a-menu-item>
-          <a-menu-item key="2">
-            nav 2
+          <a-menu-item key="2"
+                       @click="goRouter('MedicineShopGoodsType')"
+                       :disabled="$route.path === '/MedicineShopGoodsType'"
+                       :style="{color: $route.path === '/MedicineShopGoodsType'? 'white!important': ''}">
+            药品分类管理
           </a-menu-item>
-          <a-menu-item key="3">
-            nav 3
+          <a-menu-item key="3"
+                       @click="goRouter('MedicineShopGoods')"
+                       :disabled="$route.path === '/MedicineShopGoods'"
+                       :style="{color: $route.path === '/MedicineShopGoods'? 'white!important': ''}">
+            药品管理
+          </a-menu-item>
+          <a-menu-item key="4"
+                       @click="goRouter('MedicineShopOrder')"
+                       :disabled="$route.path === '/MedicineShopOrder'"
+                       :style="{color: $route.path === '/MedicineShopOrder'? 'white!important': ''}">
+            本店订单
           </a-menu-item>
         </a-menu>
       </a-layout-header>
-      <a-layout-content style="padding: 0 50px">
-        <a-breadcrumb style="margin: 16px 0">
-          <a-breadcrumb-item>Home</a-breadcrumb-item>
-          <a-breadcrumb-item>List</a-breadcrumb-item>
-          <a-breadcrumb-item>App</a-breadcrumb-item>
-        </a-breadcrumb>
-        <div :style="{ background: '#fff', padding: '24px', minHeight: '280px' }">
+      <a-layout-content style="padding: 0 50px;margin-top: 10px">
+        <div :style="{ background: '#fff', padding: '0px', minHeight: '280px' }">
           <router-view></router-view>
         </div>
       </a-layout-content>
       <a-layout-footer style="text-align: center">
-        Ant Design ©2018 Created by Ant UED
+        药店管理端
       </a-layout-footer>
     </a-layout>
   </div>
@@ -40,7 +50,15 @@
 
 <script>
 export default {
-  name: "MedicineMain"
+  name: "MedicineMain",
+  mounted(){
+
+  },
+  methods: {
+    goRouter(path) {
+      this.$router.push("/" + path)
+    }
+  }
 }
 </script>
 

@@ -37,7 +37,9 @@
             </a-form-model-item>
 
             <a-form-model-item :wrapper-col="{ span: 14, offset: 7 }">
-              <a-button type="primary" @click="onSubmit">登录</a-button>
+              <a-button type="primary" @click="onSubmit">
+                登录
+              </a-button>
               <a-button style="margin-left: 10px" @click="resetForm">
                 重置
               </a-button>

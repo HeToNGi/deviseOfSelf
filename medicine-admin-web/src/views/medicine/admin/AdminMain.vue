@@ -23,7 +23,7 @@
         </div>
       </a-layout-header>
       <a-layout-content style="padding: 0 50px;margin-top: 10px" >
-        <div :style="{ background: '#fff', padding: '10px', minHeight: '280px' }">
+        <div :style="{ background: '#fff', padding: '0px', minHeight: '280px' }">
           <router-view />
         </div>
       </a-layout-content>
@@ -41,7 +41,11 @@ export default {
   data() {
     return {}
   },
-
+  mounted:function() {
+    if (this.$route.path !== '/MedicineShopApproveReview') {
+      this.goMedicineShopApproveReview();
+    }
+  },
   methods: {
     goMedicineShopApproveReview() {
       this.$router.push('/MedicineShopApproveReview')

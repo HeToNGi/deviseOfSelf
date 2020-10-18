@@ -30,13 +30,27 @@ const routes = [
     path: '/medicine/shop/main',
     name: 'MedicineMain',
     component: () => import('@/views/medicine/shop/MedicineMain'),
-    // children: [
-    //   {
-    //     path: '/MedicineShopApproveReview',
-    //     name: 'MedicineShopApproveReview',
-    //     component: () => import('@/views/medicine/admin/MedicineShopApproveReview')
-    //   },
-    // ]
+    children: [
+      {
+        path: '/MedicineShopAnalysis',
+        name: 'MedicineShopAnalysis',
+        component: () => import('@/views/medicine/shop/MedicineShopAnalysis')
+      },{
+        path: '/MedicineShopGoodsType',
+        name: 'MedicineShopGoodsType',
+        component: () => import('@/views/medicine/shop/MedicineShopGoodsType')
+      },{
+        path: '/MedicineShopGoods',
+        name: 'MedicineShopGoods',
+        component: () => import('@/views/medicine/shop/MedicineShopGoods')
+      },{
+        path: '/MedicineShopOrder',
+        name: 'MedicineShopOrder',
+        component: () => import('@/views/medicine/shop/MedicineShopOrder')
+      },
+    ],
+    // 默认打开子路由
+    redirect:'/MedicineShopAnalysis'
   },
 
   {
@@ -57,14 +71,7 @@ const routes = [
       },
     ]
   }
-  // {
-  //   path: '/about',
-  //   name: 'About',
-  //   // route level code-splitting
-  //   // this generates a separate chunk (about.[hash].js) for this route
-  //   // which is lazy-loaded when the route is visited.
-  //   component: () => import(/* webpackChunkName: "about" */ '../views/About.vue')
-  // }
+
 ]
 
 const router = new VueRouter({
