@@ -3,7 +3,13 @@ const router = express.Router();
 const mysql = require('mysql');
 const conf = require('../config/conf');
 const uuid = require('uuid').v4;
-var format = require('date-format');
+const format = require('date-format');
+const getConnection = require("../util/dbUtil").getConnection;
+const releaseConnection = require("../util/dbUtil").releaseConnection;
+const beginTransaction = require("../util/dbUtil").beginTransaction;
+const rollBack = require("../util/dbUtil").rollBack;
+const commit = require("../util/dbUtil").commit;
+const execSqlByConn = require("../util/dbUtil").execSqlByConn;
 
 // 使用连接池
 const pool = mysql.createPool(conf.mysql);
@@ -29,65 +35,117 @@ function execSql(sql) {
   })
 }
 
+
 /*=================================================================*/
 /*客户端*/
 /*支付*/
 router.post("/client/order/pay", async (request, response, next) => {
-  let orders = await execSql(`select medicine_goods.medicine_shop_id
+  let list = [];
+  let connection;
+  try {
+    connection = await getConnection().catch(err => {
+      throw err;
+    })
+    await beginTransaction(connection).catch(err => {
+      throw err;
+    })
+
+    let orders = await execSqlByConn(connection, `select medicine_goods.medicine_shop_id
                               from medicine_car,
                                    medicine_goods
                               where medicine_goods_no = medicine_goods.medicine_no
                                 and medicine_car.user_name = '${request.session.username}'
-                              group by medicine_goods.medicine_shop_id`);
-  for (let i in orders) {
-    let order = orders[i];
+                              group by medicine_goods.medicine_shop_id`).catch(err => {
+      throw err;
+    });
+    if (orders.length === 0) {
+      throw new Error("购物车为空或者已支付");
+    }
+    for (let i in orders) {
+      // 开始
+      let order = orders[i];
 
-    // 订单号
-    let orderNo = uuid();
-    // 查询同一家店的 创建一个订单
-    let result = await execSql(`select id, user_name, medicine_goods_no, medicine_price, medicine_num
+      // 订单号
+      let orderNo = Math.random().toString(36).substr(-10);
+      // 查询同一家店的 创建一个订单
+      let result = await execSqlByConn(connection, `select id, user_name, medicine_goods_no, medicine_price, medicine_num
                                         from medicine_car 
                                         where user_name = '${request.session.username}' 
                                               and medicine_goods_no in 
-                                                  (select medicine_no from medicine_goods where id = ${order.medicine_shop_id})`);
-    for (let i in result) {
-      let item = result[i];
-      // 检查库存
-      let goods = await execSql(`select medicine_num,medicine_name,medicine_price from medicine_goods where medicine_no = '${item.medicine_goods_no}'`);
-      if (goods[0].medicine_num <= 0) {
-        throw new Error(medicine_name + " 库存为0，请重新选择")
-      }
-      // 更新库存
-      await execSql(`update medicine_goods  set medicine_num = medicine_num - ${item.medicine_num} where medicine_no = '${item.medicine_goods_no}'`);
-      // 订单项
-      await execSql(`insert into medicine_order_item (user_id, order_no, medicine_goods_no, medicine_price) 
+                                                  (select medicine_no from medicine_goods where medicine_shop_id = ${order.medicine_shop_id})`).catch(err => {
+        throw err;
+      });
+      for (let i in result) {
+        let item = result[i];
+        // 检查库存
+        let goods = await execSqlByConn(connection, `select medicine_num,medicine_name,medicine_price 
+                                                            from medicine_goods where medicine_no = '${item.medicine_goods_no}'`).catch(err => {
+          throw err;
+        });
+        if (goods[0].medicine_num <= 0) {
+          throw new Error(goods[0].medicine_name + " 库存为0，请重新选择")
+        }
+        // 更新库存
+        await execSqlByConn(connection, `update medicine_goods  set medicine_num = medicine_num - ${item.medicine_num} 
+                                                                        where medicine_no = '${item.medicine_goods_no}'`).catch(err => {
+          throw err;
+        });
+        // 订单项
+        await execSqlByConn(connection, `insert into medicine_order_item (user_id, order_no, medicine_goods_no, medicine_price, medicine_num) 
                         values 
                         ((select id from medicine_users where username = '${request.session.username}'),
-                         '${orderNo}','${ite.medicine_goods_no}',${goods[0].medicine_price})`);
-      // 删除购物车
-      await execSql(`delete from medicine_car where id = ${item.id}`)
-    }
-    // 取货码
-    let pickupCode = 0;
-    for (let i in 8) {
-      pickupCode += Math.floor(Math.random() * 10);
-    }
-    // 如果支付方式为网上支付 邮寄 不需要选择生成取货码，医保支付需要到店支付 需要取货码
-    if (request.body.payType === '2') {
-      pickupCode = '';
-    }
-    // 订单 默认为已支付
-    await execSql(`insert into medicine_order (user_id, order_no, pay_type, has_pay, 
-                            pickup_code, order_price, create_date, has_pickup, medicine_shop_id, order_address)
+                         '${orderNo}','${item.medicine_goods_no}',${goods[0].medicine_price * item.medicine_num}, ${item.medicine_num})`).catch(err => {
+          throw err;
+        });
+      }
+
+      // 订单 默认为已支付
+      let hasPay = '1';
+      if (request.body.payType === "2") {
+        hasPay = '2';
+      }
+      await execSqlByConn(connection, `insert into medicine_order (user_id, order_no, pay_type, has_pay, 
+                            order_price, create_date, has_pickup, medicine_shop_id, order_address)
                       values 
                       ((select id from medicine_users where username = '${request.session.username}'),
-                         '${orderNo}','${request.body.payType}', '1', '${pickupCode}',
-                       (select sum(medicine_price) from medicine_car where user_name = '${request.session.username}'),
-                       '${format.asString('yyyy-MM-dd HH:mm:ss', new Date())}', '0', ${order.medicine_shop_id},'${request.body.payAddress}')`)
-    // 一单100积分
-    await execSql(`update medicine_users set members_point = members_point + 100 where username = '${request.session.username}'`)
-  }
+                         '${orderNo}','${request.body.payType}', '${hasPay}',
+                       (select sum(medicine_price) from medicine_car where user_name = '${request.session.username}' and medicine_goods_no in 
+                                                  (select medicine_no from medicine_goods where medicine_shop_id = ${order.medicine_shop_id})),
+                       '${format.asString('yyyy-MM-dd hh:mm:ss', new Date())}', '0', ${order.medicine_shop_id},
+                       '${request.body.orderAddress}')`).catch(err => {
+        throw err;
+      });
+      // 一单100积分
+      await execSqlByConn(connection, `update medicine_users set members_point = members_point + 100 
+                                                        where username = '${request.session.username}'`).catch(err => {
+        throw err;
+      });
+      // 结束
+    }
+    // 删除购物车
+    let deleteCartSql = `delete from medicine_car where user_name = '${request.session.username}'`;
+    await execSqlByConn(connection, deleteCartSql).catch(err => {
+      throw err;
+    });
+    // throw new Error("回滚....")
+    await commit(connection).catch(err => {
+      throw err;
+    })
+    response.json({code: 200, message: "成功", data: list});
+  } catch (err) {
+    console.log(err)
+    response.json({code: 500, message: "支付失败" + err, data: list});
+    await rollBack(connection).catch(error => {
+      console.error("rollBack", error)
+    })
 
+  } finally {
+    await releaseConnection(connection).catch(err => {
+      console.error("releaseConnection", err)
+    })
+
+
+  }
 
 })
 
@@ -555,9 +613,12 @@ router.post("/client/goods/list", (request, response, next) => {
               order by create_date desc`;
   if (request.body.searchText === '') {
     s = `select count(1) as total
-              from medicine_goods
-              where is_delete = '0'
-                    and (medicine_name like '%${request.body.searchText}%' or medicine_desc like '%${request.body.searchText}%')
+              from medicine_goods,medicine_shop
+              where is_delete = '0' and medicine_shop.id = medicine_goods.medicine_shop_id
+                    and (medicine_name like '%${request.body.searchText}%' 
+                             or medicine_desc like '%${request.body.searchText}%' 
+                             or shop_name like '%${request.body.searchText}%'
+                             or shop_addr like '%${request.body.searchText}%')
               order by create_date desc`;
   }
   console.log('count sql', s)
@@ -599,8 +660,12 @@ router.post("/client/goods/list", (request, response, next) => {
                      where id = medicine_goods_type_id)                                                    as medicine_type_name,
                     medicine_desc                                                                          as productDesc,
                     medicine_num                                                                           as num
-             from medicine_goods
-             where is_delete = '0' and (medicine_name like '%${request.body.searchText}%' or medicine_desc like '%${request.body.searchText}%')
+             from medicine_goods,medicine_shop
+             where is_delete = '0' and medicine_shop.id = medicine_goods.medicine_shop_id
+               and (medicine_name like '%${request.body.searchText}%' 
+                             or medicine_desc like '%${request.body.searchText}%' 
+                             or shop_name like '%${request.body.searchText}%'
+                             or shop_addr like '%${request.body.searchText}%')
              order by create_date desc
              limit ${startPage}, ${pageSize}`;
         }
@@ -632,13 +697,98 @@ router.post("/client/goods/list", (request, response, next) => {
 
 
 /*=================================================================*/
+
+router.post('/shop/users/list',async (request, response, next)=>{
+  try {
+    let resTotal = await execSql(`select count(1) as total
+                        from medicine_users where id in (select user_id
+                                 from medicine_order,
+                                      medicine_shop
+                                 where medicine_shop_id = medicine_shop.id
+                                   and medicine_shop.username = '${request.session.username}')`).catch(err=>{
+      throw err
+    })
+    let total = resTotal[0].total;
+    if (total > 0) {
+      let pageSize = request.body.page.pageSize;
+      let pageNo = request.body.page.current;
+      let startPage = (pageNo - 1) * pageSize;
+      let sql = `select medicine_users.id, username, user_type, members_point 
+                        from medicine_users where id in (select medicine_order.user_id
+                                 from medicine_order,
+                                      medicine_shop
+                                 where medicine_shop_id = medicine_shop.id
+                                   and medicine_shop.username = '${request.session.username}' order by medicine_order.user_id desc )
+                                   limit ${startPage}, ${pageSize} `;
+      let results = await execSql(sql).catch(err=>{throw err})
+      response.json({
+        code: 200,
+        message: "查询成功",
+        data: results,
+        page: {total: total}
+      });
+
+    } else {
+      response.json({code:500,message:"没有用户购买过"});
+    }
+  } catch (error) {
+    console.log(error)
+    response.json({code:500,message:error});
+  }
+
+})
+
+router.post('/server/order/pickup',async (request, response, next)=>{
+  try {
+    let orders = await execSql(`select * from medicine_order where order_no = '${request.body.order_no}'`).catch(err=>{
+      throw err
+    })
+    if (orders.length === 0) {
+      throw new Error("订单不存在")
+    } else {
+      await execSql(`update medicine_order set has_pay = '1', has_pickup = '1' where order_no = '${request.body.order_no}'`).catch(err=>{
+        throw err
+      })
+      response.json({code:200,message:orders[0].pay_type === '1' ? '取货完成' : "发货完成"});
+    }
+  } catch (err) {
+    response.json({code:500,message:err});
+  }
+})
+
+router.post('/server/order/items', async (request, response, next) => {
+  try {
+    let items = await execSql(`select medicine_order_item.id,
+                                      medicine_order_item.id as \`key\`,
+                                      (select username from medicine_users where id = medicine_order_item.user_id) as user_id,
+                                      medicine_order_item.order_no,
+                                      medicine_order_item.medicine_goods_no,
+                                      medicine_order_item.medicine_price,
+                                      medicine_goods.medicine_price as price,
+                                      medicine_goods.medicine_name,
+                                      medicine_order_item.medicine_num
+                               from medicine_order_item,
+                                    medicine_goods
+                               where order_no = '${request.body.order_no}'
+                                 and medicine_goods.medicine_no = medicine_order_item.medicine_goods_no`).catch(err => {
+      throw err;
+    })
+
+    response.json({code:200,message:"查询成功", data:items});
+  } catch (error) {
+    response.json({code: 200, message: "查询失败" + error});
+  }
+})
+
+/*服务端*/
 /*订单*/
 router.post("/goods/order/list", (request, response, next) => {
-  pool.query(`select count(1)
+  pool.query(`select count(1) as total
              from medicine_order,
                   medicine_shop,
                   medicine_users
              where medicine_order.medicine_shop_id = medicine_shop.id
+               and medicine_users.id = medicine_order.user_id
                and medicine_shop.username = '${request.session.username}'
              order by create_date desc
               limit 0, 5`, (err, res) => {
@@ -651,18 +801,20 @@ router.post("/goods/order/list", (request, response, next) => {
         let pageNo = request.body.page.current;
         let startPage = (pageNo - 1) * pageSize;
         let sql = `select medicine_order.id,
-                    id                                                                      as \`key\`,
+                    medicine_order.id                                                                      as \`key\`,
                     (select username from medicine_users where id = medicine_order.user_id) as username,
                     order_no,
                     pay_type,
                     has_pay,
-                    pickup_code,
                     order_price,
-                    create_date
+                    has_pickup,
+                    create_date,
+                    (select sum(medicine_order_item.medicine_num) from medicine_order_item where medicine_order.order_no = medicine_order.order_no) as sum
              from medicine_order,
                   medicine_shop,
                   medicine_users
              where medicine_order.medicine_shop_id = medicine_shop.id
+               and medicine_users.id = medicine_order.user_id
                and medicine_shop.username = '${request.session.username}'
              order by create_date desc
              limit ${startPage}, ${pageSize}`;

@@ -34,6 +34,12 @@
                        :style="{color: $route.path === '/MedicineShopOrder'? 'white!important': ''}">
             本店订单
           </a-menu-item>
+          <a-menu-item key="5"
+                       @click="goRouter('MedicineShopUser')"
+                       :disabled="$route.path === '/MedicineShopUser'"
+                       :style="{color: $route.path === '/MedicineShopUser'? 'white!important': ''}">
+            购买过的用户
+          </a-menu-item>
         </a-menu>
       </a-layout-header>
       <a-layout-content style="padding: 0 50px;margin-top: 10px">

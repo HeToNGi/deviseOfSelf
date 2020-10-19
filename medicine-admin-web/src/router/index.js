@@ -47,6 +47,10 @@ const routes = [
         path: '/MedicineShopOrder',
         name: 'MedicineShopOrder',
         component: () => import('@/views/medicine/shop/MedicineShopOrder')
+      },{
+        path: '/MedicineShopUser',
+        name: 'MedicineShopUser',
+        component: () => import('@/views/medicine/shop/MedicineShopUser')
       },
     ],
     // 默认打开子路由

@@ -1,6 +1,6 @@
 <template>
-  <div>
-    药品统计分析
+  <div class="my-container">
+
   </div>
 </template>
 
@@ -11,5 +11,8 @@ export default {
 </script>
 
 <style scoped>
-
+.my-container{
+  display: flex;
+  justify-content: space-between;
+}
 </style>

@@ -4,3 +4,4 @@ const conf = require('../config/conf');
 const dbPool = mysql.createPool(conf.mysql);
 
 module.exports =  dbPool
+

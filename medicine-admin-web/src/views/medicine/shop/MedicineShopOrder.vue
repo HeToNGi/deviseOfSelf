@@ -11,12 +11,51 @@
                  :pagination="page"
                  @change="onChange"
                  :data-source="data">
+          <template slot="pay" slot-scope="record">
+            {{ record === '1' ? '医保卡' : '网上支付' }}
+          </template>
+          <template slot="pickUp" slot-scope="record">
+            {{ record === '1' ? '是' : '否' }}
+          </template>
           <template slot="action" slot-scope="record">
-            <a-button v-on:click="pickUp(record)">取货</a-button>
+            <a-button v-if="record.has_pickup === '0'" v-on:click="pickUp(record)">{{record.pay_type == '1' ?'取货':'发货'}}</a-button>
+            <a-button v-if="record.has_pickup === '1'" v-on:click="pickUp(record)">查看</a-button>
           </template>
         </a-table>
       </a-col>
     </a-row>
+
+    <a-modal v-model="visible"
+             title="订单详情"
+             :ok-text="currentOrder.has_pickup === '1' ? '确定' : currentOrder.pay_type == '1' ?'确认取货':'确认发货'"
+             width="55%"
+             cancel-text="取消"
+             @ok="submit">
+      <a-table :columns="[
+          {
+            title: 'ID',
+            dataIndex: 'id'
+          },{
+            title: '用户名称',
+            dataIndex: 'user_id'
+          },{
+            title: '药品名称',
+            dataIndex: 'medicine_name'
+          },{
+            title: '药品单价',
+            dataIndex: 'price'
+          },{
+            title: '购买数量',
+            dataIndex: 'medicine_num'
+          },{
+            title: '订单价格',
+            dataIndex: 'medicine_price'
+          },
+        ]" @cancel="orderItemList = [];currentOrder = {}"
+               :data-source="orderItemList">
+      </a-table>
+    </a-modal>
+
   </div>
 </template>
 
@@ -29,25 +68,27 @@ const columns = [
     dataIndex: 'id'
   },
   {
-    title: '订单号',
+    title: '订单号/取货码',
     dataIndex: 'order_no',
-  },{
+  }, {
     title: '顾客名称',
     dataIndex: 'username',
   },
   {
     title: '支付方式',
     dataIndex: 'pay_type',
+    scopedSlots: {customRender: 'pay'}
   }, {
     title: '是否支付',
     dataIndex: 'has_pay',
-  },
-  {
-    title: '取货码',
-    dataIndex: 'pickup_code',
+
   }, {
     title: '是否取货',
     dataIndex: 'has_pickup',
+    scopedSlots: {customRender: 'pickUp'}
+  }, {
+    title: '药品数量',
+    dataIndex: 'sum',
   },
   {
     title: '订单总价',
@@ -91,9 +132,14 @@ export default {
         showQuickJumper: true,
         showSizeChanger: true
       },
-      typeList: []
+      typeList: [],
+      orderItemList: [],
+      currentOrder: {},
     }
 
+  },
+  mounted() {
+    this.queryByPage();
   },
   methods: {
     onChange(page) {
@@ -114,9 +160,31 @@ export default {
       })
     },
     pickUp(record) {
-
+      request.post('/medicine/server/order/items', record).then(res => {
+        if (res.code === 200) {
+          this.orderItemList = res.data;
+          this.currentOrder = record;
+          this.visible = true;
+        } else {
+          this.$message.error(res.message);
+        }
+      })
     },
-
+    submit() {
+      if (this.currentOrder.has_pickup === '1') {
+        this.visible = false;
+        return ;
+      }
+      request.post('/medicine/server/order/pickup', this.currentOrder).then(res => {
+        if(res.code === 200) {
+          this.$message.success(res.message)
+          this.queryByPage();
+          this.visible = false;
+        } else {
+          this.$message.success(res.message)
+        }
+      })
+    }
 
 
   },

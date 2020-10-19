@@ -1,6 +1,6 @@
 import axios from 'axios'
-import notification from 'ant-design-vue/es/notification'
 import router from "@/router";
+import {Notify} from 'vant'
 
 // 创建 axios 实例
 const request = axios.create({
@@ -12,31 +12,16 @@ const request = axios.create({
 
 // 异常拦截处理器
 const errorHandler = (error) => {
-  console.error("请求失败", error)
   if (error.response) {
-    debugger
     const data = error.response.data
-    if (error.response.status === 403) {
-      notification.error({
-        message: '登录提示',
-        description: data.message
-      })
-      router.push("/")
+    if (!data.message) {
+      Notify({type: 'danger', message: data});
     } else {
-      if (!data.message) {
-        notification.error({
-          message: '系统错误',
-          description: data
-        })
-      } else {
-        notification.error({
-          message: '系统错误',
-          description: data.message
-        })
-      }
+      Notify({type: 'danger', message: data.message});
     }
-
-
+    if (error.response.status === 403) {
+      router.push("/home")
+    }
 
   }
   return Promise.reject(error)
