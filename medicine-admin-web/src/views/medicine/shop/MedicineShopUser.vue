@@ -1,6 +1,6 @@
 <template>
   <div>
-    <a-row>
+    <a-row style="padding: 5px;">
       <a-col :span="2">
         <a-button @click="queryByPage" :loading="loading">刷新</a-button>
       </a-col>
@@ -21,6 +21,8 @@
 
 <script>
 import request from "@/util/request";
+import {mapGetters, mapMutations} from 'vuex';
+
 
 const columns = [
   {
@@ -30,7 +32,7 @@ const columns = [
   {
     title: '用户名称',
     dataIndex: 'username',
-  },{
+  }, {
     title: '用户积分',
     dataIndex: 'members_point',
   },
@@ -75,12 +77,19 @@ export default {
     this.queryByPage();
   },
   methods: {
+    ...mapGetters({
+      spinning: 'spinningState'
+    }),
+    ...mapMutations({
+      setSpinning: 'setSpinning'
+    }),
     onChange(page) {
       this.page = page;
       this.queryByPage();
     },
     queryByPage() {
       this.loading = true;
+      this.setSpinning(true);
       let param = {
         page: this.page
       }
@@ -90,9 +99,10 @@ export default {
           this.page.total = response.page.total;
           this.loading = false;
           this.$message.success(response.message)
-        } else{
+        } else {
           this.$message.error(response.message)
         }
+        this.setSpinning(false);
       })
     },
 

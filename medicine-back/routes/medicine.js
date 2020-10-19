@@ -607,9 +607,11 @@ router.post("/client/goods/detail", (request, response, next) => {
 /*商品列表*/
 router.post("/client/goods/list", (request, response, next) => {
   let s = `select count(1) as total
-              from medicine_goods
-              where is_delete = '0'
-                    and (medicine_name like '%${request.body.searchText}%' or medicine_desc like '%${request.body.searchText}%')
+              from medicine_goods,medicine_shop
+              where is_delete = '0' and medicine_shop.id = medicine_goods.medicine_shop_id 
+                    and (medicine_name like '%${request.body.searchText}%' or medicine_desc like '%${request.body.searchText}%' 
+                             or shop_name like '%${request.body.searchText}%'
+                             or shop_addr like '%${request.body.searchText}%')
               order by create_date desc`;
   if (request.body.searchText === '') {
     s = `select count(1) as total
@@ -649,17 +651,17 @@ router.post("/client/goods/list", (request, response, next) => {
              order by create_date desc
              limit ${startPage}, ${pageSize}`;
         } else {
-          sql = `select id,
+          sql = `select medicine_goods.id,
                     concat('http://127.0.0.1:3000', medicine_pic_url)                                      as img,
-                    medicine_name                                                                          as name,
-                    medicine_price                                                                         as price,
-                    medicine_no                                                                            as productId,
-                    medicine_name                                                                          as title,
+                    medicine_goods.medicine_name                                                                          as name,
+                    medicine_goods.medicine_price                                                                         as price,
+                    medicine_goods.medicine_no                                                                            as productId,
+                    medicine_goods.medicine_name                                                                          as title,
                     (select medicine_type_name
                      from medicine_goods_type
                      where id = medicine_goods_type_id)                                                    as medicine_type_name,
-                    medicine_desc                                                                          as productDesc,
-                    medicine_num                                                                           as num
+                    medicine_goods.medicine_desc                                                                          as productDesc,
+                    medicine_goods.medicine_num                                                                           as num
              from medicine_goods,medicine_shop
              where is_delete = '0' and medicine_shop.id = medicine_goods.medicine_shop_id
                and (medicine_name like '%${request.body.searchText}%' 
@@ -698,14 +700,65 @@ router.post("/client/goods/list", (request, response, next) => {
 
 /*=================================================================*/
 
-router.post('/shop/users/list',async (request, response, next)=>{
+/*统计分析*/
+router.post("/shop/analysis", async (request, response, next) => {
+  try {
+    let amount = await execSql(`select sum(order_price) as amount
+                   from medicine_order
+                   where medicine_shop_id = (
+                       select id
+                       from medicine_shop
+                       where username = '${request.session.username}')`).catch(err => {
+      throw err
+    });
+    let orderNums = await execSql(`select count(1) as total
+                   from medicine_order
+                   where medicine_shop_id = (
+                       select id
+                       from medicine_shop
+                       where username = '${request.session.username}')`).catch(err => {
+      throw err;
+    });
+    let usersNum = await execSql(`select count(1) as total
+                        from medicine_users where id in (select user_id
+                                 from medicine_order,
+                                      medicine_shop
+                                 where medicine_shop_id = medicine_shop.id
+                                   and medicine_shop.username = '${request.session.username}')`).catch(err => {
+      throw err;
+    });
+
+    let chartData = await execSql(`select sum(a.order_price) as 销售额, create_date as 日期
+                                   from (
+                                            select order_price, left(create_date, 10) as create_date
+                                            from medicine_order
+                                            where medicine_shop_id = (
+                                                select id
+                                                from medicine_shop
+                                                where username = '${request.session.username}')) as a
+                                   group by a.create_date`);
+
+    await response.json({
+      code: 200, message: "初始化统计分析成功", data: {
+        amount: amount[0].amount,
+        orderNums: orderNums[0].total,
+        usersNum: usersNum[0].total,
+        chartData: chartData
+      }
+    });
+  } catch (error) {
+    await response.json({code: 500, message: error});
+  }
+})
+
+router.post('/shop/users/list', async (request, response, next) => {
   try {
     let resTotal = await execSql(`select count(1) as total
                         from medicine_users where id in (select user_id
                                  from medicine_order,
                                       medicine_shop
                                  where medicine_shop_id = medicine_shop.id
-                                   and medicine_shop.username = '${request.session.username}')`).catch(err=>{
+                                   and medicine_shop.username = '${request.session.username}')`).catch(err => {
       throw err
     })
     let total = resTotal[0].total;
@@ -713,15 +766,17 @@ router.post('/shop/users/list',async (request, response, next)=>{
       let pageSize = request.body.page.pageSize;
       let pageNo = request.body.page.current;
       let startPage = (pageNo - 1) * pageSize;
-      let sql = `select medicine_users.id, username, user_type, members_point 
+      let sql = `select medicine_users.id,medicine_users.id as \`key\`, username, user_type, members_point 
                         from medicine_users where id in (select medicine_order.user_id
                                  from medicine_order,
                                       medicine_shop
                                  where medicine_shop_id = medicine_shop.id
                                    and medicine_shop.username = '${request.session.username}' order by medicine_order.user_id desc )
                                    limit ${startPage}, ${pageSize} `;
-      let results = await execSql(sql).catch(err=>{throw err})
-      response.json({
+      let results = await execSql(sql).catch(err => {
+        throw err
+      })
+      await response.json({
         code: 200,
         message: "查询成功",
         data: results,
@@ -729,30 +784,30 @@ router.post('/shop/users/list',async (request, response, next)=>{
       });
 
     } else {
-      response.json({code:500,message:"没有用户购买过"});
+      await response.json({code: 500, message: "没有用户购买过"});
     }
   } catch (error) {
     console.log(error)
-    response.json({code:500,message:error});
+    await response.json({code: 500, message: error});
   }
 
 })
 
-router.post('/server/order/pickup',async (request, response, next)=>{
+router.post('/server/order/pickup', async (request, response, next) => {
   try {
-    let orders = await execSql(`select * from medicine_order where order_no = '${request.body.order_no}'`).catch(err=>{
+    let orders = await execSql(`select * from medicine_order where order_no = '${request.body.order_no}'`).catch(err => {
       throw err
     })
     if (orders.length === 0) {
       throw new Error("订单不存在")
     } else {
-      await execSql(`update medicine_order set has_pay = '1', has_pickup = '1' where order_no = '${request.body.order_no}'`).catch(err=>{
+      await execSql(`update medicine_order set has_pay = '1', has_pickup = '1' where order_no = '${request.body.order_no}'`).catch(err => {
         throw err
       })
-      response.json({code:200,message:orders[0].pay_type === '1' ? '取货完成' : "发货完成"});
+      response.json({code: 200, message: orders[0].pay_type === '1' ? '取货完成' : "发货完成"});
     }
   } catch (err) {
-    response.json({code:500,message:err});
+    response.json({code: 500, message: err});
   }
 })
 
@@ -774,7 +829,7 @@ router.post('/server/order/items', async (request, response, next) => {
       throw err;
     })
 
-    response.json({code:200,message:"查询成功", data:items});
+    response.json({code: 200, message: "查询成功", data: items});
   } catch (error) {
     response.json({code: 200, message: "查询失败" + error});
   }

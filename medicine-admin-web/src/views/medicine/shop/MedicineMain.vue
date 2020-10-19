@@ -3,44 +3,48 @@
     <!--药品管理-->
     <a-layout id="components-layout-demo-top" class="layout">
       <a-layout-header>
-        <div class="logo"/>
-        <a-menu
-            theme="dark"
-            mode="horizontal"
-            :default-selected-keys="['1']"
-            :style="{ lineHeight: '64px' }"
-        >
-          <a-menu-item key="1"
-                       @click="goRouter('MedicineShopAnalysis')"
-                       :disabled="$route.path === '/MedicineShopAnalysis'"
-                       :style="{color: $route.path === '/MedicineShopAnalysis'? 'white!important': ''}">
-            统计分析
-          </a-menu-item>
-          <a-menu-item key="2"
-                       @click="goRouter('MedicineShopGoodsType')"
-                       :disabled="$route.path === '/MedicineShopGoodsType'"
-                       :style="{color: $route.path === '/MedicineShopGoodsType'? 'white!important': ''}">
-            药品分类管理
-          </a-menu-item>
-          <a-menu-item key="3"
-                       @click="goRouter('MedicineShopGoods')"
-                       :disabled="$route.path === '/MedicineShopGoods'"
-                       :style="{color: $route.path === '/MedicineShopGoods'? 'white!important': ''}">
-            药品管理
-          </a-menu-item>
-          <a-menu-item key="4"
-                       @click="goRouter('MedicineShopOrder')"
-                       :disabled="$route.path === '/MedicineShopOrder'"
-                       :style="{color: $route.path === '/MedicineShopOrder'? 'white!important': ''}">
-            本店订单
-          </a-menu-item>
-          <a-menu-item key="5"
-                       @click="goRouter('MedicineShopUser')"
-                       :disabled="$route.path === '/MedicineShopUser'"
-                       :style="{color: $route.path === '/MedicineShopUser'? 'white!important': ''}">
-            购买过的用户
-          </a-menu-item>
-        </a-menu>
+        <div class="header-logo">
+          药店服务端
+        </div>
+        <div class="header-menu">
+          <a-menu
+              theme="dark"
+              mode="horizontal"
+              :default-selected-keys="['1']"
+              :style="{ lineHeight: '64px' }"
+          >
+            <a-menu-item key="1"
+                         @click="goRouter('MedicineShopAnalysis')"
+                         :disabled="$route.path === '/MedicineShopAnalysis'"
+                         :style="{color: $route.path === '/MedicineShopAnalysis'? 'white!important': ''}">
+              统计分析
+            </a-menu-item>
+            <a-menu-item key="2"
+                         @click="goRouter('MedicineShopGoodsType')"
+                         :disabled="$route.path === '/MedicineShopGoodsType'"
+                         :style="{color: $route.path === '/MedicineShopGoodsType'? 'white!important': ''}">
+              药品分类管理
+            </a-menu-item>
+            <a-menu-item key="3"
+                         @click="goRouter('MedicineShopGoods')"
+                         :disabled="$route.path === '/MedicineShopGoods'"
+                         :style="{color: $route.path === '/MedicineShopGoods'? 'white!important': ''}">
+              药品管理
+            </a-menu-item>
+            <a-menu-item key="4"
+                         @click="goRouter('MedicineShopOrder')"
+                         :disabled="$route.path === '/MedicineShopOrder'"
+                         :style="{color: $route.path === '/MedicineShopOrder'? 'white!important': ''}">
+              本店订单
+            </a-menu-item>
+            <a-menu-item key="5"
+                         @click="goRouter('MedicineShopUser')"
+                         :disabled="$route.path === '/MedicineShopUser'"
+                         :style="{color: $route.path === '/MedicineShopUser'? 'white!important': ''}">
+              购买过的用户
+            </a-menu-item>
+          </a-menu>
+        </div>
       </a-layout-header>
       <a-layout-content style="padding: 0 50px;margin-top: 10px">
         <div :style="{ background: '#fff', padding: '0px', minHeight: '280px' }">
@@ -69,5 +73,22 @@ export default {
 </script>
 
 <style scoped>
+.header-logo, .header-menu {
+  display: inline-block;
+  align-content: flex-start;
+}
 
+.header-logo {
+  width: 10%;
+  text-align: center;
+  color: white;
+}
+
+.header-logo > span {
+  font-size: larger;
+}
+
+.header-menu {
+  width: 90%;
+}
 </style>

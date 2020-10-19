@@ -1,6 +1,8 @@
 <template>
   <div id="app">
-    <router-view/>
+    <a-spin size="large" tip="加载中" :spinning="this.$store.state.spinning">
+      <router-view/>
+    </a-spin>
   </div>
 </template>
 

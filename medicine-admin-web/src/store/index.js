@@ -5,11 +5,20 @@ Vue.use(Vuex)
 
 export default new Vuex.Store({
   state: {
-    user: {}
+    user: {},
+    spinning: false,
+  },
+  getters:{
+    spinningState: state => {
+      return state.spinning;
+    }
   },
   mutations: {
     saveUser(state, data) {
       state.user = data;
+    },
+    setSpinning(state, data) {
+      state.spinning = data;
     }
   },
   actions: {},
